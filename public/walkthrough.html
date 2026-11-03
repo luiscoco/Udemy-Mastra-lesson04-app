@@ -1,0 +1,62 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Execute typed Mastra workflow steps over a lesson catalog, then compare fixed process logic with an optional agent explanation."><title>Mastra · Lesson 04 · Code walkthrough</title><link rel="icon" href="/astronaut.png"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/lesson.css"><link rel="stylesheet" href="/lab.css"><link rel="stylesheet" href="/code-highlighting.css"></head><body><a class="skip-link" href="#content">Skip to lesson content</a><main><div class="brand"><a href="/">How <span>Mastra</span> Works</a><span class="badge">LESSON 04 / CORE BUILDING BLOCKS</span></div><header class="hero"><div><div class="eyebrow">AGENT · TOOL · WORKFLOW · CONTEXT</div><h1>Explain the <em>actual source.</em></h1><p class="lead">Core Building Blocks</p></div><img src="/astronaut.png" width="190" height="190" alt="Course astronaut mascot"></header><nav class="nav" aria-label="Application sections"><a href="/">Application lab</a><a href="/learn.html">What you will learn</a><a href="/run.html">How to run</a><a href="/architecture.html">Architecture & workflow</a><a href="/walkthrough.html" aria-current="page">Code walkthrough</a><button type="button" id="theme">Dark mode</button></nav><div id="content" tabindex="-1"><section class="note">The local path executes a real two-step Mastra workflow and deterministic planning logic. It does not call a model or persist conversation history. The separately labelled live agent uses the same bounded catalog. The links and excerpts are generated from this repository; no pseudocode is presented as a running SDK integration.</section><section class="step"><h2>src/lab.ts</h2><p>This excerpt is generated from the actual implementation. The complete file and its line range are linked below.</p><div class="code-toolbar"><p class="source"><a href="https://github.com/luiscoco/Udemy-Mastra-lesson04-app/blob/main/src/lab.ts#L1-L20">src/lab.ts · lines 1–20</a></p><button type="button" data-copy="code-6">Copy code</button></div><pre><code id="code-6" class="language-typescript">import { mastra } from &quot;./mastra/index.js&quot;;
+import { createTutor } from &quot;./mastra/agents.js&quot;;
+import { studyInput } from &quot;./mastra/workflows.js&quot;;
+import { assertActive, generateAnswer, modelId, type AgentModel, type Emit, type LabResult } from &quot;./core.js&quot;;
+export const inputSchema = studyInput;
+export async function executeLab(raw: unknown, emit: Emit, signal: AbortSignal): Promise&lt;LabResult&gt; {
+  const input = inputSchema.parse(raw); assertActive(signal);
+  emit({ type: &quot;stage&quot;, text: &quot;Creating and starting the registered two-step study-plan workflow.&quot; });
+  const run = await mastra.getWorkflow(&quot;studyPlan&quot;).createRun();
+  const response = await run.start({ inputData: input }); assertActive(signal);
+  const businessReady = response.status === &quot;success&quot; &amp;&amp; response.result.outcome === &quot;ready&quot;;
+  return { status: businessReady ? &quot;pass&quot; : &quot;needs-attention&quot;, summary: businessReady ? &quot;The workflow completed and found a usable study plan.&quot; : &quot;Inspect SDK execution separately from the missing-record business outcome.&quot;,
+    data: { sdkStatus: response.status, runId: run.runId, result: response.status === &quot;success&quot; ? response.result : null, stepIds: Object.keys(response.steps), memoryConfigured: false } };
+}
+export const liveModel = (_?: unknown) =&gt; modelId();
+export async function executeLive(raw: unknown, question: string, emit: Emit, signal: AbortSignal, model?: AgentModel) {
+  const report = await executeLab(raw, emit, signal);
+  return generateAnswer(model ? createTutor(model) : mastra.getAgent(&quot;tutor&quot;), `${question}\nWorkflow evidence: ${JSON.stringify(report.data)}. recentLesson is request context, not stored memory.`, emit, signal);
+}
+export async function dispose() {}</code></pre></section><section class="step"><h2>src/mastra/index.ts</h2><p>This excerpt is generated from the actual implementation. The complete file and its line range are linked below.</p><div class="code-toolbar"><p class="source"><a href="https://github.com/luiscoco/Udemy-Mastra-lesson04-app/blob/main/src/mastra/index.ts#L1-L4">src/mastra/index.ts · lines 1–4</a></p><button type="button" data-copy="code-7">Copy code</button></div><pre><code id="code-7" class="language-typescript">import { Mastra } from &quot;@mastra/core/mastra&quot;;
+import { tutor } from &quot;./agents.js&quot;;
+import { studyPlan } from &quot;./workflows.js&quot;;
+export const mastra = new Mastra({ agents: { tutor }, workflows: { studyPlan } });</code></pre></section><section class="step"><h2>src/mastra/workflows.ts</h2><p>This excerpt is generated from the actual implementation. The complete file and its line range are linked below.</p><div class="code-toolbar"><p class="source"><a href="https://github.com/luiscoco/Udemy-Mastra-lesson04-app/blob/main/src/mastra/workflows.ts#L1-L17">src/mastra/workflows.ts · lines 1–17</a></p><button type="button" data-copy="code-8">Copy code</button></div><pre><code id="code-8" class="language-typescript">import { createStep, createWorkflow } from &quot;@mastra/core/workflows&quot;;
+import { z } from &quot;zod&quot;;
+import { lookupLesson } from &quot;./tools.js&quot;;
+export const studyInput = z.object({ lessonId: z.number().int().min(1).max(999), minutes: z.number().int().min(10).max(120), recentLesson: z.number().int().min(1).max(999).optional() }).strict();
+const contextSchema = studyInput.extend({ record: z.object({ id: z.number(), title: z.string(), prerequisites: z.array(z.number()) }).nullable() });
+const lookup = createStep({ id: &quot;lookup&quot;, inputSchema: studyInput, outputSchema: contextSchema,
+  execute: async ({ inputData }) =&gt; {
+    const result = await lookupLesson.execute!({ lessonId: inputData.lessonId }, {});
+    if (!result || &quot;error&quot; in result) throw new Error(&quot;Catalog tool validation failed.&quot;);
+    return { ...inputData, record: result.record };
+  } });
+const planSchema = z.object({ outcome: z.enum([&quot;ready&quot;, &quot;needs-clarification&quot;]), title: z.string(), actions: z.array(z.string()), minutes: z.number(), suppliedRecentLesson: z.number().nullable() });
+const plan = createStep({ id: &quot;plan&quot;, inputSchema: contextSchema, outputSchema: planSchema,
+  execute: async ({ inputData }) =&gt; ({ outcome: inputData.record ? &quot;ready&quot; as const : &quot;needs-clarification&quot; as const,
+    title: inputData.record?.title || &quot;Choose an existing lesson&quot;, minutes: inputData.minutes, suppliedRecentLesson: inputData.recentLesson || null,
+    actions: inputData.record ? [`Review prerequisites: ${inputData.record.prerequisites.join(&quot;, &quot;) || &quot;none&quot;}`, `Study ${inputData.record.title} for ${inputData.minutes - 5} minutes`, &quot;Spend 5 minutes explaining the result&quot;] : [&quot;Select a lesson ID from 1 to 10; do not invent a catalog entry.&quot;] }) });
+export const studyPlan = createWorkflow({ id: &quot;study-plan&quot;, inputSchema: studyInput, outputSchema: planSchema }).then(lookup).then(plan).commit();</code></pre></section><section class="step"><h2>src/mastra/tools.ts</h2><p>This excerpt is generated from the actual implementation. The complete file and its line range are linked below.</p><div class="code-toolbar"><p class="source"><a href="https://github.com/luiscoco/Udemy-Mastra-lesson04-app/blob/main/src/mastra/tools.ts#L1-L9">src/mastra/tools.ts · lines 1–9</a></p><button type="button" data-copy="code-9">Copy code</button></div><pre><code id="code-9" class="language-typescript">import { createTool } from &quot;@mastra/core/tools&quot;;
+import { z } from &quot;zod&quot;;
+import { course } from &quot;../course.js&quot;;
+export const lookupLesson = createTool({
+  id: &quot;lookup-lesson&quot;, description: &quot;Read one public course record by lesson ID; report missing records explicitly.&quot;,
+  inputSchema: z.object({ lessonId: z.number().int().min(1).max(999) }).strict(),
+  outputSchema: z.object({ found: z.boolean(), record: z.object({ id: z.number(), title: z.string(), prerequisites: z.array(z.number()) }).nullable() }),
+  execute: async ({ lessonId }) =&gt; ({ found: course.some(item =&gt; item.id === lessonId), record: course.find(item =&gt; item.id === lessonId) || null }),
+});</code></pre></section><section class="step"><h2>Shared generation boundary</h2><p>The common helper calls the real Agent API with explicit limits. Lesson-specific code selects the registered agent, inputs and additional validation.</p><div class="code-toolbar"><p class="source"><a href="https://github.com/luiscoco/Udemy-Mastra-lesson04-app/blob/main/src/core.ts#L39-L54">src/core.ts · lines 39–54</a></p><button type="button" data-copy="code-10">Copy code</button></div><pre><code id="code-10" class="language-typescript">export async function generateAnswer(agent: Agent, question: string, emit: Emit, signal: AbortSignal,
+  options: { maxOutputTokens?: number; temperature?: number } = {}) {
+  assertActive(signal);
+  emit({ type: &quot;stage&quot;, text: &quot;Calling the registered agent with generate(); the provider performs the model work.&quot; });
+  const response = await agent.generate(question, { maxSteps: MAX_STEPS, abortSignal: signal,
+    modelSettings: { maxOutputTokens: options.maxOutputTokens || 1200, ...(options.temperature === undefined ? {} : { temperature: options.temperature }) } });
+  assertActive(signal);
+  if (response.error) throw response.error;
+  if (response.text) emit({ type: &quot;answer&quot;, text: response.text });
+  return { finished: response.finishReason === &quot;stop&quot; &amp;&amp; response.text.trim().length &gt; 0,
+    text: response.text, steps: response.steps.length, finishReason: response.finishReason,
+    toolCalls: response.toolCalls.length, details: { finishReason: response.finishReason, toolCalls: response.toolCalls.length } };
+}
+export function resultMarkdown(result: LabResult) {
+  return `## ${result.status === &quot;pass&quot; ? &quot;Practical result&quot; : &quot;Review the result&quot;}\n\n${result.summary}\n\n\`\`\`json\n${JSON.stringify(result.data, null, 2)}\n\`\`\``;
+}</code></pre></section><section class="step"><h2>Make one focused change</h2><p>Change the session duration and inspect the plan. Then request a missing lesson and explain why SDK success is not the same as satisfying the user&#39;s task.</p></section></div><footer>MASTRA AI AGENTS · LESSON 04 · CORE BUILDING BLOCKS<br>Independent TypeScript application · provider credentials stay on the server<br><a href="https://github.com/luiscoco/Udemy-Mastra-lesson04-app">Source on GitHub</a> · <a href="https://mastra.ai/docs">Official Mastra documentation</a></footer></main><script src="/navigation.js"></script><script src="/prism.js"></script><script src="/code-highlighting.js"></script></body></html>
