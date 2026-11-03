@@ -97,5 +97,35 @@ export const LESSON = {
       "title": "Tools",
       "url": "https://mastra.ai/reference/tools/create-tool"
     }
+  ],
+  "readmeWorkflow": [
+    {
+      "step": "Validate request",
+      "component": "src/mastra/workflows.ts",
+      "behavior": "Validate lessonId, bounded session minutes and optional recentLesson context."
+    },
+    {
+      "step": "Create run",
+      "component": "src/lab.ts",
+      "behavior": "Call the registered studyPlan workflow’s createRun() and start()."
+    },
+    {
+      "step": "Lookup step",
+      "component": "src/mastra/workflows.ts",
+      "behavior": "Execute the typed catalog tool and pass its nullable record forward."
+    },
+    {
+      "step": "Plan step",
+      "component": "src/mastra/workflows.ts",
+      "behavior": "Build study actions or a needs-clarification outcome from the actual lookup result."
+    }
+  ],
+  "liveWorkflow": [
+    "The same real workflow runs first.",
+    "The registered tutor explains its returned evidence; recentLesson is explicitly request context."
+  ],
+  "outcomeNotes": [
+    "SDK status success with outcome=needs-clarification is shown as Needs attention.",
+    "No conversation memory is configured or retained by this example."
   ]
 } satisfies LessonMetadata;
